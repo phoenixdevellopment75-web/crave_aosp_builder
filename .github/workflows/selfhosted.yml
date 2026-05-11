@@ -44,9 +44,9 @@ on:
         default: 'https://github.com/sounddrill31/local_manifests_oxygen'
 
       LOCAL_MANIFEST_BRANCH:
-        description: "Local manifest branch:"
+        description: "Personal local manifest branch:"
         required: false
-        default: 'main'
+        default: 'lineage-21-qpr3'
 
       DEVICE_NAME:
         description: "Device codename:"
@@ -89,6 +89,9 @@ jobs:
 # -----------------------------------------------------------
   Start-Runner:
     runs-on: ubuntu-latest
+    # FIX: This job failing should NOT block the rest of the workflow.
+    # The runner may already be running from a previous session.
+    continue-on-error: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -115,22 +118,30 @@ jobs:
           CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
           CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
 
+      # FIX: Changed exit 1 to a warning so a missing runner doesn't hard-fail
+      # the whole workflow. If the runner is already running, this is fine.
       - name: Start GitHub Actions runner in devspace
         run: |
           crave ${{ secrets.CRAVE_FLAGS }} devspace -- "
             if [ -f actions-runner/run.sh ]; then
-              echo 'Runner found!'
+              echo 'Runner script found!'
             else
-              echo 'Error: Runner not found! Please set up actions-runner in your devspace.'
-              exit 1
+              echo 'WARNING: actions-runner/run.sh not found in devspace.'
+              echo 'If your self-hosted runner is already active, ignore this.'
+              echo 'Otherwise, set up the GitHub Actions runner in your crave devspace first.'
             fi
+
             if tmux has-session -t ghactions 2>/dev/null; then
-              echo 'Runner is already running.'
+              echo 'Runner session already exists - nothing to do.'
             else
-              tmux kill-session -t ghactions 2>/dev/null || true
-              tmux new-session -d -s ghactions
-              tmux send-keys -t ghactions './actions-runner/run.sh' Enter
-              echo 'Runner started.'
+              if [ -f actions-runner/run.sh ]; then
+                tmux kill-session -t ghactions 2>/dev/null || true
+                tmux new-session -d -s ghactions
+                tmux send-keys -t ghactions './actions-runner/run.sh' Enter
+                echo 'Runner started in tmux session.'
+              else
+                echo 'Skipping runner start - script not found.'
+              fi
             fi
           "
 
@@ -254,6 +265,9 @@ jobs:
           echo "LOCAL_MANIFEST=$LOCAL_MANIFEST" >> "$GITHUB_OUTPUT"
           echo "LOCAL_MANIFEST=$LOCAL_MANIFEST" >> "$GITHUB_ENV"
 
+      # FIX: Removed the manifest clone from this display step entirely.
+      # It was cloning using LOCAL_MANIFEST_BRANCH='main' which doesn't exist,
+      # causing exit code 128. Display is now info-only, no git ops.
       - name: Display build parameters
         run: |
           echo "::group::Build Parameters"
@@ -265,16 +279,9 @@ jobs:
           echo "Device          : ${{ github.event.inputs.DEVICE_NAME }}"
           echo "Lunch Target    : ${{ env.LUNCH }}"
           echo "Build Command   : ${{ github.event.inputs.BUILD_COMMAND }}"
+          echo "Build Type      : ${{ github.event.inputs.BUILD_TYPE }}"
           echo "Clean Build     : ${{ github.event.inputs.CLEAN_BUILD }}"
           echo "::endgroup::"
-
-          echo "Displaying Local Manifests"
-          if [[ -z "${{ secrets.DISPLAY_FALSE }}" ]]; then
-            bash -c "$LOCAL_MANIFEST"
-            cat .repo/local_manifests/*.xml
-          else
-            echo "Displaying is disabled through secrets."
-          fi
 
     outputs:
       PROJECTFOLDER:  ${{ steps.proj-variables.outputs.PROJECTFOLDER }}

@@ -1,53 +1,131 @@
-build:
-    name: Build using foss.crave.io
-    needs: prepare
+name: Crave Builder (Stable)
+on:
+  workflow_dispatch:
+    inputs:
+      BASE_PROJECT:
+        description: 'Choose a base project:'
+        required: true
+        default: 'PixelOS 15'
+        type: choice
+        options:
+          - 'LineageOS 22.1'
+          - 'PixelOS 15'
+          - 'RisingOS 15 Revived'
+      LOCAL_MANIFEST:
+        description: "Personal local manifest repo link:"
+        required: true
+        default: 'https://github.com/phoenixdevellopment75-web/my-manifests'
+      LOCAL_MANIFEST_BRANCH:
+        description: "Personal local manifest branch:"
+        required: true
+        default: 'main'
+      DEVICE_NAME:
+        description: "Device codename:"
+        required: true
+        default: "crosshatch"
+      PRODUCT_NAME:
+        description: "Product to build:"
+        required: true
+        default: "aosp_crosshatch"
+      BUILD_TYPE:
+        description: 'Type of build:'
+        required: true
+        default: 'userdebug'
+        type: choice
+        options: 
+          - 'eng'
+          - 'userdebug'
+          - 'user'
+      BUILD_COMMAND:
+        description: 'Command to compile:'
+        required: true
+        default: 'mka bacon'
+
+jobs:
+  build_rom:
+    name: Build ROM via Crave
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.repository_owner }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Telegram Notification (Start)
-      continue-on-error: true
-      run: |
-        curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
-        -d chat_id=${{ secrets.TELEGRAM_TO }} \
-        -d text="🚀 *Build Started*%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}%0AProject: ${{ github.event.inputs.BASE_PROJECT }}" \
-        -d parse_mode="Markdown"
+      - name: Set Project Variables
+        run: |
+          case "${{ github.event.inputs.BASE_PROJECT }}" in
+            "LineageOS 22.1")
+              echo "PROJECT_ID=93" >> $GITHUB_ENV
+              echo "PROJECT_FOLDER=/crave-devspaces/Lineage22" >> $GITHUB_ENV
+              echo "REPO_INIT=repo init -u https://github.com/accupara/los22.git -b lineage-22.1 --git-lfs --depth=1" >> $GITHUB_ENV
+              ;;
+            "PixelOS 15")
+              echo "PROJECT_ID=82" >> $GITHUB_ENV
+              echo "PROJECT_FOLDER=/crave-devspaces/Pixel15" >> $GITHUB_ENV
+              echo "REPO_INIT=repo init -u https://github.com/PixelOS-AOSP/manifest.git -b fifteen --git-lfs --depth=1" >> $GITHUB_ENV
+              ;;
+            "RisingOS 15 Revived")
+              echo "PROJECT_ID=86" >> $GITHUB_ENV
+              echo "PROJECT_FOLDER=/crave-devspaces/Rising15" >> $GITHUB_ENV
+              echo "REPO_INIT=repo init -u https://github.com/RisingOS-Revived/android.git -b fifteen --git-lfs --depth=1" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "PROJECT_ID=82" >> $GITHUB_ENV
+              echo "PROJECT_FOLDER=/crave-devspaces/Pixel15" >> $GITHUB_ENV
+              echo "REPO_INIT=repo init -u https://github.com/PixelOS-AOSP/manifest.git -b fifteen --git-lfs --depth=1" >> $GITHUB_ENV
+              ;;
+          esac
 
-    - name: Create Project Folders & Set up Crave
-      run: |
-        mkdir -p ${HOME}/bin
-        curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash
-        mv crave ${HOME}/bin/
-        sudo ln -sf /home/${USER}/bin/crave /usr/bin/crave
-        sudo chmod +x /usr/bin/crave
-        
-        # CRITICAL: Move crave.conf to the home directory so the CLI always finds it
-        envsubst < crave.conf.sample > ${HOME}/crave.conf
-      env:
-        CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
-        CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
+          if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "RisingOS 15 Revived" ]]; then
+              echo "LUNCH=riseup ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}" >> $GITHUB_ENV
+          else
+              echo "LUNCH=lunch ${{ github.event.inputs.PRODUCT_NAME }}-${{ github.event.inputs.BUILD_TYPE }}" >> $GITHUB_ENV
+          fi
 
-    - name: Start Crave Build
-      run: |
-        # Explicitly passing the Project ID tells Crave exactly which server to use
-        crave run --projectID ${{ needs.prepare.outputs.PROJECTID }} --no-patch -- /bin/bash <<EOF
-        rm -rf .repo/local_manifests/
-        ${{ needs.prepare.outputs.REPO_INIT }}
-        ${{ needs.prepare.outputs.LOCAL_MANIFEST }}
-        /opt/crave/resync.sh
-        source build/envsetup.sh
-        ${{ needs.prepare.outputs.LUNCH }}
-        ${{ github.event.inputs.BUILD_COMMAND }}
-        EOF
-      timeout-minutes: 1440
+          echo "LOCAL_MANIFEST_CMD=git clone ${{ github.event.inputs.LOCAL_MANIFEST }} -b ${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }} .repo/local_manifests" >> $GITHUB_ENV
 
-    - name: Telegram Notification (Status)
-      if: always()
-      run: |
-        curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
-        -d chat_id=${{ secrets.TELEGRAM_TO }} \
-        -d text="🏁 *Build Finished*%0AStatus: ${{ job.status }}%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}" \
-        -d parse_mode="Markdown"
+      - name: Telegram Notification (Start)
+        continue-on-error: true
+        run: |
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+          -d chat_id=${{ secrets.TELEGRAM_TO }} \
+          -d text="🚀 *Build Started*%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}%0AProject: ${{ github.event.inputs.BASE_PROJECT }}" \
+          -d parse_mode="Markdown"
+
+      - name: Install Crave
+        run: |
+          mkdir -p ${HOME}/bin
+          curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash
+          mv crave ${HOME}/bin/
+          sudo ln -sf /home/${USER}/bin/crave /usr/bin/crave
+          sudo chmod +x /usr/bin/crave
+
+      - name: Setup Crave Workspace
+        env:
+          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
+          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
+        run: |
+          envsubst < crave.conf.sample > ${HOME}/crave.conf
+          crave clone destroy -y ${{ env.PROJECT_FOLDER }} || true
+          crave clone create --projectID ${{ env.PROJECT_ID }} ${{ env.PROJECT_FOLDER }} || true
+
+      - name: Build ROM
+        timeout-minutes: 1440
+        run: |
+          crave run --projectID ${{ env.PROJECT_ID }} --no-patch -- /bin/bash <<EOF
+          rm -rf .repo/local_manifests/
+          ${{ env.REPO_INIT }}
+          ${{ env.LOCAL_MANIFEST_CMD }}
+          /opt/crave/resync.sh
+          source build/envsetup.sh
+          ${{ env.LUNCH }}
+          ${{ github.event.inputs.BUILD_COMMAND }}
+          EOF
+
+      - name: Telegram Notification (Status)
+        if: always()
+        run: |
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+          -d chat_id=${{ secrets.TELEGRAM_TO }} \
+          -d text="🏁 *Build Finished*%0AStatus: ${{ job.status }}%0ADevice: ${{ github.event.inputs.DEVICE_NAME }}" \
+          -d parse_mode="Markdown"

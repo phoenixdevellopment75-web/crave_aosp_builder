@@ -73,10 +73,6 @@ on:
         - 'yes'
         - 'no'
 
-jobs:
-  Start-Runner:
-    runs-on: ubuntu-latest
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -399,24 +395,23 @@ jobs:
 
         # Create a project folder
     - name: Create Project Folders
-      run: |
-        echo "DCDEVSPACE status: ${DCDEVSPACE}"
-        if [[ $DCDEVSPACE != *1* ]]; then
+     run: |
+      echo "DCDEVSPACE status: ${DCDEVSPACE}"
+      if [[ $DCDEVSPACE != *1* ]]; then
+        mkdir -p ${HOME}/bin
+        curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash
+        mv crave ${HOME}/bin/
+        sudo ln -sf /home/${USER}/bin/crave /usr/bin/crave
+        sudo chmod +x /usr/bin/crave
 
-          #curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s -- 
-
-          #mkdir -p ${HOME}/bin/
-          #mv ${PWD}/crave ${HOME}/bin/ 
-          #sudo ln -sf /home/${USER}/bin/crave /usr/bin/crave; sudo chmod +x /usr/bin/crave 
-
-          echo "Symlinking devspace folder"
-          mkdir -p devspace
-          sudo mkdir -p /crave-devspaces
-          sudo ln -sf ${pwd}/devspace /crave-devspaces
-          sudo chmod 777 /crave-devspaces
-        else
-          echo "We are already running in devspace... Skipping Symlinks"
-        fi
+        echo "Symlinking devspace folder"
+        mkdir -p devspace
+        sudo mkdir -p /crave-devspaces
+        sudo ln -sf $(pwd)/devspace /crave-devspaces
+        sudo chmod 777 /crave-devspaces
+      else
+        echo "We are already running in devspace... Skipping Symlinks"
+      fi
         if grep -q "$PROJECTFOLDER" <(crave clone list --json | jq -r '.clones[]."Cloned At"') || [[ "${DCDEVSPACE}" == "1" ]]; then
           crave clone destroy -y $PROJECTFOLDER || echo "Error removing $PROJECTFOLDER"
         else          

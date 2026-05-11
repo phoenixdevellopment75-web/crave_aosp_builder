@@ -106,6 +106,8 @@ jobs:
           CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
         run: |
           envsubst < crave.conf.sample > ${HOME}/crave.conf
+          sudo mkdir -p /crave-devspaces
+          sudo chmod 777 /crave-devspaces
           crave clone destroy -y ${{ env.PROJECT_FOLDER }} || true
           crave clone create --projectID ${{ env.PROJECT_ID }} ${{ env.PROJECT_FOLDER }} || true
 
@@ -124,6 +126,7 @@ jobs:
           EOF
 
       - name: Telegram Notification (Status)
+        continue-on-error: true
         if: always()
         run: |
           curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \

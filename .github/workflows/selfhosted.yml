@@ -1,158 +1,4 @@
-#
-# Copyright (C) 2024-2025 Antonino Scordino
-# Copyright (C) 2024-2025 Souhrud Reddy
-#
-# SPDX-License-Identifier: Apache-2.0
-#
-
-name: Crave Builder(self-hosted)
-on:
-  workflow_dispatch:
-    inputs:
-      BASE_PROJECT:
-        description: 'Choose a base project:'
-        required: true
-        default: 'PixelOS 15'
-        type: choice
-        options:
-          - 'LineageOS 20.0'
-          - 'LineageOS 21.0'
-          - 'LineageOS 22.1'
-          - 'ArrowOS 13.1'
-          - 'DerpFest 14.0'
-          - 'CipherOS 14'
-          - 'PixelOS 15'
-          - 'RisingOS 15 Revived'
-      BUILD_DIFFERENT_ROM:
-        description: "Command to initialize a different 'repo' project:"
-        required: false
-        default: "echo 'Build Starting!'"
-      REMOVALS:
-        description: "Folders to be removed before syncing:"
-        required: false
-      LOCAL_MANIFEST:
-        description: "Personal local manifest [repository or raw]:"
-        required: true
-        default: 'https://github.com/phoenixdevellopment75-web/my-manifests'
-      LOCAL_MANIFEST_BRANCH:
-        description: "Personal local manifest's branch:"
-        required: false
-        default: 'main'
-      DEVICE_NAME:
-        description: "Device's codename:"
-        required: true
-        default: "crosshatch"
-      PRODUCT_NAME:
-        description: "Product to build:"
-        required: true
-        default: "aosp_crosshatch"
-      BUILD_COMMAND:
-        description: 'Command to be used for compiling:'
-        required: true
-        default: 'mka bacon'
-      BUILD_TYPE:
-        description: 'Type of build:'
-        required: true
-        default: 'userdebug'
-        type: choice
-        options: 
-        - 'eng'
-        - 'userdebug'
-        - 'user' 
-      CLEAN_BUILD:
-        description: 'Build with a clean workspace?'
-        required: true
-        default: 'no'
-        type: choice
-        options: 
-        - 'yes'
-        - 'no'
-
-jobs:
-  prepare:
-    name: Prepare for Building
-    runs-on: ubuntu-latest
-    steps:
-    - name: Check-out to repository
-      uses: actions/checkout@v4
-
-    - name: Check Credentials
-      run: |
-        if [[ -z "${{ secrets.CRAVE_TOKEN }}" || -z "${{ secrets.CRAVE_USERNAME }}" ]]; then
-          echo "Crave Credentials Not Configured! Exiting..."
-          exit 1
-        fi
-
-    - name: Set Project variables
-      id: proj-variables
-      run: |
-        case "${{ github.event.inputs.BASE_PROJECT }}" in
-        "ArrowOS 13.1")
-          echo "PROJECTFOLDER=/crave-devspaces/Arrow13" >> "$GITHUB_OUTPUT"
-          echo "PROJECTID=73" >> "$GITHUB_OUTPUT"
-          echo "REPO_INIT=repo init -u https://github.com/ArrowOS/android_manifest.git -b arrow-13.1 --depth=1" >> "$GITHUB_OUTPUT"
-        ;;
-        "DerpFest 14.0")
-          echo "PROJECTFOLDER=/crave-devspaces/DerpFest14" >> "$GITHUB_OUTPUT"
-          echo "PROJECTID=64" >> "$GITHUB_OUTPUT"
-          echo "REPO_INIT=repo init -u https://github.com/DerpFest-AOSP/manifest.git -b 14 --depth=1" >> "$GITHUB_OUTPUT"
-        ;;
-        "LineageOS 21.0")
-          echo "PROJECTFOLDER=/crave-devspaces/Lineage21" >> "$GITHUB_OUTPUT"
-          echo "PROJECTID=72" >> "$GITHUB_OUTPUT"
-          echo "REPO_INIT=repo init -u https://github.com/LineageOS/android.git -b lineage-21.0 --git-lfs --depth=1" >> "$GITHUB_OUTPUT"
-        ;;
-        "PixelOS 15")
-          echo "PROJECTFOLDER=/crave-devspaces/Pixel15" >> "$GITHUB_OUTPUT"
-          echo "PROJECTID=82" >> "$GITHUB_OUTPUT"
-          echo "REPO_INIT=repo init -u https://github.com/PixelOS-AOSP/manifest.git -b fifteen --git-lfs --depth=1" >> "$GITHUB_OUTPUT"
-        ;;
-        *)
-          echo "PROJECTFOLDER=/crave-devspaces/Pixel15" >> "$GITHUB_OUTPUT"
-          echo "PROJECTID=82" >> "$GITHUB_OUTPUT"
-          echo "REPO_INIT=repo init -u https://github.com/PixelOS-AOSP/manifest.git -b fifteen --git-lfs --depth=1" >> "$GITHUB_OUTPUT"
-        ;;
-        esac
-
-        if [[ "${{ github.event.inputs.BASE_PROJECT }}" == "RisingOS 15 Revived" ]]; then
-            echo "LUNCH=riseup ${{ github.event.inputs.PRODUCT_NAME }} ${{ github.event.inputs.BUILD_TYPE }}" >> "$GITHUB_OUTPUT"
-        else
-            echo "LUNCH=lunch ${{ github.event.inputs.PRODUCT_NAME }}-${{ github.event.inputs.BUILD_TYPE }}" >> "$GITHUB_OUTPUT"
-        fi
-
-        if [[ "${{ github.event.inputs.LOCAL_MANIFEST }}" =~ \.xml$ ]]; then
-            echo "LOCAL_MANIFEST=mkdir -p .repo/local_manifests && curl -o .repo/local_manifests/local_manifest.xml ${{ github.event.inputs.LOCAL_MANIFEST }}" >> "$GITHUB_OUTPUT"
-        else
-            echo "LOCAL_MANIFEST=git clone ${{ github.event.inputs.LOCAL_MANIFEST }} --depth 1 -b ${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }} .repo/local_manifests" >> "$GITHUB_OUTPUT"
-        fi
-
-    outputs:
-      PROJECTFOLDER: ${{ steps.proj-variables.outputs.PROJECTFOLDER }}
-      PROJECTID: ${{ steps.proj-variables.outputs.PROJECTID }}
-      REPO_INIT: ${{ steps.proj-variables.outputs.REPO_INIT }}
-      LUNCH: ${{ steps.proj-variables.outputs.LUNCH }}
-      LOCAL_MANIFEST: ${{ steps.proj-variables.outputs.LOCAL_MANIFEST }}
-
-  test:
-    name: Test Local Manifests
-    needs: prepare
-    runs-on: ubuntu-latest
-    steps:
-    - name: Configure the 'repo' environment
-      run: |
-        mkdir -p ~/bin
-        curl https://storage.googleapis.com/git-repo-downloads/repo >> ~/bin/repo
-        chmod a+x ~/bin/repo
-        sudo ln -sf "/home/$(whoami)/bin/repo" "/usr/bin/repo"
-
-    - name: Test Sync
-      run: |
-        mkdir tester && cd tester
-        ${{ needs.prepare.outputs.REPO_INIT }}
-        ${{ needs.prepare.outputs.LOCAL_MANIFEST }}
-        timeout 2m repo sync --force-sync -c -j$(nproc --all) --no-clone-bundle --no-tags || echo "Sync test finished"
-
-  build:
+build:
     name: Build using foss.crave.io
     needs: prepare
     runs-on: ubuntu-latest
@@ -177,18 +23,17 @@ jobs:
         mv crave ${HOME}/bin/
         sudo ln -sf /home/${USER}/bin/crave /usr/bin/crave
         sudo chmod +x /usr/bin/crave
-        envsubst < crave.conf.sample > crave.conf
         
-        # Clean existing clones if any
-        crave clone destroy -y ${{ needs.prepare.outputs.PROJECTFOLDER }} || true
-        crave clone create --projectID ${{ needs.prepare.outputs.PROJECTID }} ${{ needs.prepare.outputs.PROJECTFOLDER }} || true
+        # CRITICAL: Move crave.conf to the home directory so the CLI always finds it
+        envsubst < crave.conf.sample > ${HOME}/crave.conf
       env:
         CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
         CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
 
     - name: Start Crave Build
       run: |
-        crave run --no-patch -- /bin/bash <<EOF
+        # Explicitly passing the Project ID tells Crave exactly which server to use
+        crave run --projectID ${{ needs.prepare.outputs.PROJECTID }} --no-patch -- /bin/bash <<EOF
         rm -rf .repo/local_manifests/
         ${{ needs.prepare.outputs.REPO_INIT }}
         ${{ needs.prepare.outputs.LOCAL_MANIFEST }}

@@ -106,10 +106,9 @@ jobs:
           CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
         run: |
           envsubst < crave.conf.sample > ${HOME}/crave.conf
-          sudo mkdir -p /crave-devspaces
-          sudo chmod 777 /crave-devspaces
-          crave clone destroy -y ${{ env.PROJECT_FOLDER }} || true
-          crave clone create --projectID ${{ env.PROJECT_ID }} ${{ env.PROJECT_FOLDER }} || true
+          # Safely create the folder without using the dead crave clone command
+          sudo mkdir -p ${{ env.PROJECT_FOLDER }}
+          sudo chmod 777 ${{ env.PROJECT_FOLDER }}
 
       - name: Build ROM
         timeout-minutes: 1440

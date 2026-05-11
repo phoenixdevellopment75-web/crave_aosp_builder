@@ -112,6 +112,7 @@ jobs:
       - name: Build ROM
         timeout-minutes: 1440
         run: |
+          cd ${{ env.PROJECT_FOLDER }}
           crave run --projectID ${{ env.PROJECT_ID }} --no-patch -- /bin/bash <<EOF
           rm -rf .repo/local_manifests/
           ${{ env.REPO_INIT }}

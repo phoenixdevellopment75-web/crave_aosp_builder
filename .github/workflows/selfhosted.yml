@@ -1,7 +1,6 @@
 #
 # PixelOS 15 Builder for Pixel 3 XL (crosshatch)
-# Based on crave_aosp_builder - adapted for GitHub-hosted runners
-# Fixes: crave.conf path/format, runner type, manifest branch
+# Fixed: removed unsupported -p flag, project set via crave.yaml
 #
 
 name: PixelOS Builder
@@ -98,7 +97,6 @@ jobs:
           else
             echo "Telegram notifications enabled"
           fi
-          echo "Secrets OK"
 
       - name: Set project variables
         id: set-vars
@@ -270,8 +268,7 @@ jobs:
           chmod +x "${HOME}/bin/crave"
           echo "${HOME}/bin" >> $GITHUB_PATH
 
-          # FIX: Write crave.conf in the EXACT format crave expects, to $HOME
-          # (Your crave.conf.sample format has headers/server fields - replicated here)
+          # Write crave.conf to $HOME (exact format crave expects)
           cat > "${HOME}/crave.conf" << EOF
           {
             "username": "${{ secrets.CRAVE_USERNAME }}",
@@ -285,7 +282,7 @@ jobs:
           }
           EOF
 
-          echo "crave.conf written to ${HOME}/crave.conf"
+          echo "crave.conf written successfully"
 
       - name: Configure git
         run: |
@@ -319,13 +316,23 @@ jobs:
           fi
           echo "BUILD_INIT=$BUILD_INIT" >> "$GITHUB_OUTPUT"
 
+      - name: Write crave.yaml for project selection
+        run: |
+          # crave uses crave.yaml in the working directory to know which project to target
+          # This replaces the unsupported -p flag
+          mkdir -p "${PWD}/.repo/manifests"
+          cat > "${PWD}/crave.yaml" << EOF
+          allowedProjects:
+            - projectId: "${{ needs.test.outputs.PROJECTID }}"
+              projectFolder: "${{ needs.test.outputs.PROJECTFOLDER }}"
+          EOF
+          echo "crave.yaml written:"
+          cat "${PWD}/crave.yaml"
+
       - name: Start crave build
         if: ${{ github.event.inputs.BUILD_DIFFERENT_ROM != 'skip' }}
         timeout-minutes: 1440
         run: |
-          # Clear projects list before run
-          jq '.projects = []' "${HOME}/crave.conf" > /tmp/crave_tmp.conf && mv /tmp/crave_tmp.conf "${HOME}/crave.conf"
-
           echo "========================================"
           echo "STARTING BUILD ON CRAVE.IO"
           echo "Project : ${{ needs.test.outputs.PROJECTFOLDER }}"
@@ -333,11 +340,13 @@ jobs:
           echo "Monitor : https://foss.crave.io"
           echo "========================================"
 
+          CLEAN_FLAG="${{ steps.flags.outputs.CLEAN_FLAG }}"
+          PAID_FLAG="${{ steps.flags.outputs.PAID_FLAG }}"
+
           crave ${{ secrets.CRAVE_FLAGS }} run \
             --no-patch \
-            ${{ steps.flags.outputs.PAID_FLAG }} \
-            ${{ steps.flags.outputs.CLEAN_FLAG }} \
-            -p "${{ needs.test.outputs.PROJECTID }}" \
+            ${PAID_FLAG} \
+            ${CLEAN_FLAG} \
             -- "
             set -e
 

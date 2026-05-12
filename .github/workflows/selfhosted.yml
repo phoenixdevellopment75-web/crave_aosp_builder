@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-name: PixelOS Builder (Self-Hosted)
+name: PixelOS Builder
 
 on:
   workflow_dispatch:
@@ -83,36 +83,37 @@ on:
           - 'yes'
 
 jobs:
-
-# -----------------------------------------------------------
-# Job 1: Validate and prepare build configuration
-# -----------------------------------------------------------
   prepare:
-    name: Prepare Build Variables
+    name: Prepare Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate crave credentials
+      - name: Validate secrets
         run: |
           if [[ -z "${{ secrets.CRAVE_TOKEN }}" || -z "${{ secrets.CRAVE_USERNAME }}" ]]; then
-            echo "ERROR: CRAVE_TOKEN or CRAVE_USERNAME secret is missing."
-            echo "Please add these secrets in your repository settings:"
-            echo "  - CRAVE_USERNAME"
-            echo "  - CRAVE_TOKEN"
+            echo "❌ ERROR: CRAVE_TOKEN or CRAVE_USERNAME is missing!"
+            echo ""
+            echo "Please add these secrets in repository settings:"
+            echo "  Settings → Secrets and variables → Actions → New repository secret"
+            echo ""
+            echo "Required secrets:"
+            echo "  - CRAVE_USERNAME (your crave.io username)"
+            echo "  - CRAVE_TOKEN (your crave.io API token)"
             exit 1
           fi
           
           if [[ -z "${{ secrets.TELEGRAM_TO }}" || -z "${{ secrets.TELEGRAM_TOKEN }}" ]]; then
-            echo "WARNING: TELEGRAM_TO or TELEGRAM_TOKEN is missing."
-            echo "Telegram notifications will be disabled."
+            echo "⚠️  WARNING: Telegram secrets missing - notifications will be disabled"
+          else
+            echo "✅ Telegram notifications enabled"
           fi
           
-          bash scripts/env-checker.sh
+          echo "✅ All required secrets configured"
 
-      - name: Resolve project variables
-        id: proj-variables
+      - name: Set project variables
+        id: set-vars
         run: |
           case "${{ github.event.inputs.BASE_PROJECT }}" in
             "PixelOS 15")
@@ -177,6 +178,7 @@ jobs:
               ;;
           esac
 
+          # Determine lunch command
           PRODUCT="${{ github.event.inputs.PRODUCT_NAME }}"
           BUILD_TYPE="${{ github.event.inputs.BUILD_TYPE }}"
 
@@ -194,6 +196,7 @@ jobs:
             LUNCH="breakfast ${PRODUCT} ${BUILD_TYPE}"
           fi
 
+          # Determine local manifest command
           LOCAL_MANIFEST_URL="${{ github.event.inputs.LOCAL_MANIFEST }}"
           LOCAL_MANIFEST_URL="${LOCAL_MANIFEST_URL%/}"
           if [[ "$LOCAL_MANIFEST_URL" =~ \.xml$ ]]; then
@@ -208,54 +211,40 @@ jobs:
           echo "LUNCH=$LUNCH"                 >> "$GITHUB_OUTPUT"
           echo "LOCAL_MANIFEST=$LOCAL_MANIFEST" >> "$GITHUB_OUTPUT"
 
-      - name: Display build parameters
+      - name: Display configuration
         run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📋 BUILD CONFIGURATION"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🔹 Base Project    : ${{ github.event.inputs.BASE_PROJECT }}"
-          echo "🔹 Device          : ${{ github.event.inputs.DEVICE_NAME }}"
-          echo "🔹 Product         : ${{ github.event.inputs.PRODUCT_NAME }}"
-          echo "🔹 Build Type      : ${{ github.event.inputs.BUILD_TYPE }}"
-          echo "🔹 Build Command   : ${{ github.event.inputs.BUILD_COMMAND }}"
-          echo "🔹 Clean Build     : ${{ github.event.inputs.CLEAN_BUILD }}"
-          echo "🔹 Local Manifest  : ${{ github.event.inputs.LOCAL_MANIFEST }}"
-          echo "🔹 Manifest Branch : ${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
-          echo "🔹 Removals        : ${{ github.event.inputs.REMOVALS }}"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎯 Project         : ${{ github.event.inputs.BASE_PROJECT }}"
+          echo "📱 Device          : ${{ github.event.inputs.DEVICE_NAME }}"
+          echo "📦 Product         : ${{ github.event.inputs.PRODUCT_NAME }}"
+          echo "🔧 Build Type      : ${{ github.event.inputs.BUILD_TYPE }}"
+          echo "⚙️  Build Command   : ${{ github.event.inputs.BUILD_COMMAND }}"
+          echo "🧹 Clean Build     : ${{ github.event.inputs.CLEAN_BUILD }}"
+          echo "📂 Local Manifest  : ${{ github.event.inputs.LOCAL_MANIFEST }}"
+          echo "🌿 Manifest Branch : ${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
+          echo "🗑️  Removals        : ${{ github.event.inputs.REMOVALS }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     outputs:
-      PROJECTFOLDER:  ${{ steps.proj-variables.outputs.PROJECTFOLDER }}
-      PROJECTID:      ${{ steps.proj-variables.outputs.PROJECTID }}
-      REPO_INIT:      ${{ steps.proj-variables.outputs.REPO_INIT }}
-      LUNCH:          ${{ steps.proj-variables.outputs.LUNCH }}
-      LOCAL_MANIFEST: ${{ steps.proj-variables.outputs.LOCAL_MANIFEST }}
+      PROJECTFOLDER:  ${{ steps.set-vars.outputs.PROJECTFOLDER }}
+      PROJECTID:      ${{ steps.set-vars.outputs.PROJECTID }}
+      REPO_INIT:      ${{ steps.set-vars.outputs.REPO_INIT }}
+      LUNCH:          ${{ steps.set-vars.outputs.LUNCH }}
+      LOCAL_MANIFEST: ${{ steps.set-vars.outputs.LOCAL_MANIFEST }}
 
-# -----------------------------------------------------------
-# Job 2: Test local manifest (quick validation)
-# -----------------------------------------------------------
   test:
-    name: Test Local Manifest
+    name: Test Manifest
     needs: prepare
     runs-on: ubuntu-latest
     steps:
-      - name: Propagate variables
+      - name: Install repo
         run: |
-          echo "PROJECTFOLDER=${{ needs.prepare.outputs.PROJECTFOLDER }}" >> "$GITHUB_ENV"
-          echo "PROJECTID=${{ needs.prepare.outputs.PROJECTID }}"         >> "$GITHUB_ENV"
-          echo "REPO_INIT=${{ needs.prepare.outputs.REPO_INIT }}"         >> "$GITHUB_ENV"
-          echo "LUNCH=${{ needs.prepare.outputs.LUNCH }}"                 >> "$GITHUB_ENV"
-          echo "LOCAL_MANIFEST=${{ needs.prepare.outputs.LOCAL_MANIFEST }}" >> "$GITHUB_ENV"
-
-      - name: Install repo tool
-        run: |
-          if ! command -v repo >/dev/null 2>&1; then
-            mkdir -p ~/bin
-            curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-            chmod a+x ~/bin/repo
-            sudo ln -sf ~/bin/repo /usr/bin/repo
-          fi
-        continue-on-error: true
+          mkdir -p ~/bin
+          curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          sudo ln -sf ~/bin/repo /usr/bin/repo
 
       - name: Configure git
         run: |
@@ -266,18 +255,23 @@ jobs:
         if: ${{ github.event.inputs.BUILD_DIFFERENT_ROM != 'skip' }}
         timeout-minutes: 10
         run: |
-          rm -rf tester && mkdir tester && cd tester
+          rm -rf test && mkdir test && cd test
+          
           if [ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]; then
-            $REPO_INIT
+            ${{ needs.prepare.outputs.REPO_INIT }}
           else
             ${{ github.event.inputs.BUILD_DIFFERENT_ROM }}
           fi
-          bash -c "$LOCAL_MANIFEST"
+          
+          bash -c "${{ needs.prepare.outputs.LOCAL_MANIFEST }}"
+          
           timeout 1m repo sync --force-sync || {
             code=$?
             [ $code -eq 124 ] || exit $code
           }
-          du -csh .
+          
+          echo "✅ Manifest test passed"
+          du -sh .
 
     outputs:
       PROJECTFOLDER:  ${{ needs.prepare.outputs.PROJECTFOLDER }}
@@ -286,188 +280,155 @@ jobs:
       LUNCH:          ${{ needs.prepare.outputs.LUNCH }}
       LOCAL_MANIFEST: ${{ needs.prepare.outputs.LOCAL_MANIFEST }}
 
-# -----------------------------------------------------------
-# Job 3: Build ROM on self-hosted crave runner
-# -----------------------------------------------------------
   build:
     name: Build ROM
     needs: test
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 1440
-    concurrency:
-      group: ${{ github.repository_owner }}-build
-      cancel-in-progress: false
-
     steps:
-      - name: Propagate variables
-        run: |
-          echo "PROJECTFOLDER=${{ needs.test.outputs.PROJECTFOLDER }}" >> "$GITHUB_ENV"
-          echo "PROJECTID=${{ needs.test.outputs.PROJECTID }}"         >> "$GITHUB_ENV"
-          echo "REPO_INIT=${{ needs.test.outputs.REPO_INIT }}"         >> "$GITHUB_ENV"
-          echo "LUNCH=${{ needs.test.outputs.LUNCH }}"                 >> "$GITHUB_ENV"
-          echo "LOCAL_MANIFEST=${{ needs.test.outputs.LOCAL_MANIFEST }}" >> "$GITHUB_ENV"
-
-      - name: Telegram - Build Queued
-        continue-on-error: true
-        run: |
-          if [[ -n "${{ secrets.TELEGRAM_TOKEN }}" && -n "${{ secrets.TELEGRAM_TO }}" ]]; then
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-              -d chat_id="${{ secrets.TELEGRAM_TO }}" \
-              -d parse_mode="Markdown" \
-              -d text="🚀 *Build Queued*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A🎯 Project: ${{ github.event.inputs.BASE_PROJECT }}%0A%0A[View Progress →](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          fi
-
-      - name: Clean workspace
-        run: rm -rf *
-
-      - name: Verify environment
-        continue-on-error: true
-        run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🔧 RUNNER ENVIRONMENT CHECK"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "DCDEVSPACE: ${DCDEVSPACE}"
-          echo "USER: ${USER}"
-          echo "HOME: ${HOME}"
-          echo "PWD: ${PWD}"
-          
-          if command -v crave >/dev/null 2>&1; then
-            echo "✅ crave is installed"
-            crave --version || true
-          else
-            echo "❌ crave is NOT installed"
-          fi
-          
-          set +e
-          output=$(source ~/.bashrc 2>&1)
-          if [[ $? -ne 0 ]] || echo "$output" | grep -q "cannot execute"; then
-            echo "⚠️  WARNING: .bashrc has errors - contact Crave.io admin"
-          else
-            echo "✅ .bashrc OK"
-          fi
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-      - name: Setup project directory
-        run: |
-          echo "Setting up project directory..."
-          if [[ $DCDEVSPACE != *1* ]]; then
-            mkdir -p devspace
-            sudo mkdir -p /crave-devspaces
-            sudo ln -sf ${PWD}/devspace /crave-devspaces
-            sudo chmod 777 /crave-devspaces
-          fi
-
-          if crave clone list --json 2>/dev/null | jq -r '.clones[]."Cloned At"' | grep -q "$PROJECTFOLDER"; then
-            echo "Destroying existing clone..."
-            crave clone destroy -y "$PROJECTFOLDER" || true
-          fi
-
-          if [[ $DCDEVSPACE == *1* ]]; then
-            echo "Creating crave clone..."
-            crave clone create --projectID "$PROJECTID" "$PROJECTFOLDER" || echo "Clone may already exist"
-          else
-            mkdir -p "$PROJECTFOLDER"
-          fi
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup device workspace
-        run: mkdir -p "$PROJECTFOLDER/${{ github.event.inputs.DEVICE_NAME }}"
-        continue-on-error: true
+      - name: Set up environment
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y jq curl
+
+      - name: Configure crave CLI
+        run: |
+          mkdir -p ${HOME}/bin
+          curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
+          mv ${PWD}/crave ${HOME}/bin/
+          sudo ln -sf ${HOME}/bin/crave /usr/bin/crave
+          
+          # Create crave config
+          envsubst < ${PWD}/crave.conf.sample >> ${PWD}/crave.conf
+          rm -f ${PWD}/crave.conf.sample
+        env:
+          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
+          CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
 
       - name: Configure git
         run: |
           git config --global user.name  "${{ github.actor }}"
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
-      - name: Configure crave
+      - name: Telegram notification - Build started
+        continue-on-error: true
         run: |
-          mkdir -p "$PROJECTFOLDER/.repo/manifests"
+          if [[ -n "${{ secrets.TELEGRAM_TOKEN }}" && -n "${{ secrets.TELEGRAM_TO }}" ]]; then
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+              -d chat_id="${{ secrets.TELEGRAM_TO }}" \
+              -d parse_mode="Markdown" \
+              -d text="🚀 *Build Started*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A🎯 Project: ${{ github.event.inputs.BASE_PROJECT }}%0A%0A[View Progress →](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          fi
+
+      - name: Determine build flags
+        id: flags
+        run: |
+          CLEAN_FLAG=""
+          [[ "${{ github.event.inputs.CLEAN_BUILD }}" == "yes" ]] && CLEAN_FLAG="--clean"
+          echo "CLEAN_FLAG=$CLEAN_FLAG" >> "$GITHUB_OUTPUT"
           
-          if [[ $DCDEVSPACE != *1* ]]; then
-            if ! command -v crave >/dev/null 2>&1; then
-              echo "Installing crave..."
-              curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
-              mv ${PWD}/crave ${HOME}/bin/
-              sudo ln -sf /home/${USER}/bin/crave /usr/bin/crave
-            fi
-            envsubst < ${PWD}/crave.conf.sample >> ${PWD}/crave.conf
-            rm -f ${PWD}/crave.conf.sample
-            cp crave.conf "$PROJECTFOLDER"
-          fi
-
-          if [[ -z "${{ secrets.CUSTOM_YAML }}" ]]; then
-            cp configs/crave/crave.yaml.aosp "$PROJECTFOLDER/.repo/manifests/crave.yaml"
-          else
-            echo "${{ secrets.CUSTOM_YAML }}" > "$PROJECTFOLDER/.repo/manifests/crave.yaml"
-          fi
-        env:
-          CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
-          CRAVE_TOKEN:    ${{ secrets.CRAVE_TOKEN }}
-
-      - name: Initialize repo
-        run: |
-          cd "$PROJECTFOLDER"
-          if crave clone list --json 2>/dev/null | jq -r '.clones[]."Cloned At"' | grep -q "$PROJECTFOLDER"; then
-            echo "Using existing crave clone - skipping repo init"
-          else
-            echo "Running: $REPO_INIT"
-            $REPO_INIT
-          fi
-
-          if [ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]; then
-            BUILD_DIFFERENT_ROM="$REPO_INIT"
-          else
+          PAID_FLAG=""
+          [[ -n "${{ secrets.PAID }}" ]] && PAID_FLAG="--platform aosp-silver"
+          echo "PAID_FLAG=$PAID_FLAG" >> "$GITHUB_OUTPUT"
+          
+          BUILD_DIFFERENT_ROM="${{ needs.test.outputs.REPO_INIT }}"
+          if [ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" != "echo 'Build Starting!'" ]; then
             BUILD_DIFFERENT_ROM="${{ github.event.inputs.BUILD_DIFFERENT_ROM }}"
           fi
-          echo "BUILD_DIFFERENT_ROM=$BUILD_DIFFERENT_ROM" >> "$GITHUB_ENV"
+          echo "BUILD_DIFFERENT_ROM=$BUILD_DIFFERENT_ROM" >> "$GITHUB_OUTPUT"
 
-      - name: Start Build
+      - name: Start crave build
         if: ${{ github.event.inputs.BUILD_DIFFERENT_ROM != 'skip' }}
         timeout-minutes: 1440
         run: |
-          cd "$PROJECTFOLDER"
+          PROJECTFOLDER="${{ needs.test.outputs.PROJECTFOLDER }}"
           
+          # Clean crave config
           jq '.projects = []' ~/crave.conf > tmp && mv tmp ~/crave.conf
-
-          CLEAN_FLAG=""
-          [[ "${{ github.event.inputs.CLEAN_BUILD }}" == "yes" ]] && CLEAN_FLAG="--clean"
-
-          PAID_FLAG=""
-          [[ -n "${{ secrets.PAID }}" ]] && PAID_FLAG="--platform aosp-silver"
-
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🏗️  STARTING BUILD"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "Check live status: https://foss.crave.io"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-          crave ${{ secrets.CRAVE_FLAGS }} run --no-patch ${PAID_FLAG} ${CLEAN_FLAG} -- "
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏗️  STARTING BUILD ON CRAVE.IO"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Project Folder: $PROJECTFOLDER"
+          echo "Project ID: ${{ needs.test.outputs.PROJECTID }}"
+          echo "Clean Build: ${{ github.event.inputs.CLEAN_BUILD }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Monitor at: https://foss.crave.io"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          crave ${{ secrets.CRAVE_FLAGS }} run \
+            --no-patch \
+            ${{ steps.flags.outputs.PAID_FLAG }} \
+            ${{ steps.flags.outputs.CLEAN_FLAG }} \
+            -- "
+            set -e
+            
+            # Clean up
             rm -rf .repo/local_manifests/ ${{ github.event.inputs.REMOVALS }}
-
-            $BUILD_DIFFERENT_ROM
-            $LOCAL_MANIFEST
-
+            
+            # Initialize repo
+            ${{ steps.flags.outputs.BUILD_DIFFERENT_ROM }}
+            
+            # Clone local manifests
+            ${{ needs.test.outputs.LOCAL_MANIFEST }}
+            
+            # Sync repositories
             if [ -f /usr/bin/resync ]; then
               /usr/bin/resync
             else
               /opt/crave/resync.sh
             fi
-
+            
+            # Set up build environment
             export BUILD_USERNAME=${{ github.actor }}
             export BUILD_HOSTNAME=crave
             source build/envsetup.sh
-
-            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo 'BUILD INFORMATION'
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
             echo 'Repository : ${{ github.repository }}'
             echo 'Run ID     : ${{ github.run_id }}'
-            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
-
-            $LUNCH && make installclean && ${{ github.event.inputs.BUILD_COMMAND }}
+            echo 'Device     : ${{ github.event.inputs.DEVICE_NAME }}'
+            echo 'Product    : ${{ github.event.inputs.PRODUCT_NAME }}'
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            
+            # Lunch and build
+            ${{ needs.test.outputs.LUNCH }}
+            make installclean
+            ${{ github.event.inputs.BUILD_COMMAND }}
           "
 
-      - name: Telegram - Success
+      - name: Upload artifacts to GitHub Release
+        if: success()
+        continue-on-error: true
+        run: |
+          PROJECTFOLDER="${{ needs.test.outputs.PROJECTFOLDER }}"
+          
+          # Push GitHub token to crave
+          echo "${{ secrets.GITHUB_TOKEN }}" > token.txt
+          crave push token.txt -d "$(crave ssh -- pwd | grep -v Select | sed 's/\r//g')/" || true
+          rm -f token.txt
+          
+          # Run upload script
+          crave ssh -- "
+            export GH_UPLOAD_LIMIT='${{ secrets.GH_UPLOAD_LIMIT }}'
+            if [ -f /opt/crave/github-actions/upload.sh ]; then
+              bash /opt/crave/github-actions/upload.sh \
+                '${{ github.run_id }}' \
+                '${{ github.event.inputs.DEVICE_NAME }}' \
+                '${{ github.repository }}' \
+                '${{ github.event.inputs.PRODUCT_NAME }}-${{ github.run_id }}' \
+                '${{ secrets.EXTRA_FILES }}'
+            else
+              echo 'Upload script not found - skipping GitHub Release upload'
+            fi
+          " || echo "Upload failed - artifacts may still be available on crave.io"
+
+      - name: Telegram notification - Success
         if: success()
         continue-on-error: true
         run: |
@@ -475,52 +436,34 @@ jobs:
             curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
               -d chat_id="${{ secrets.TELEGRAM_TO }}" \
               -d parse_mode="Markdown" \
-              -d text="✅ *Build Succeeded*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A%0A[View Run →](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})%0A[Download Release →](https://github.com/${{ github.repository }}/releases/tag/${{ github.run_id }})"
+              -d text="✅ *Build Succeeded*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A🎯 Project: ${{ github.event.inputs.BASE_PROJECT }}%0A%0A[View Run →](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})%0A[Download →](https://github.com/${{ github.repository }}/releases/tag/${{ github.run_id }})"
           fi
 
-      - name: Telegram - Failed
+      - name: Telegram notification - Failed
         if: failure() || cancelled()
         continue-on-error: true
         run: |
           if [[ -n "${{ secrets.TELEGRAM_TOKEN }}" && -n "${{ secrets.TELEGRAM_TO }}" ]]; then
             STATUS="${{ job.status }}"
-            [[ "$STATUS" == "cancelled" ]] && ICON="🚫" && WORD="Cancelled" || ICON="❌" && WORD="Failed"
+            if [ "$STATUS" = "cancelled" ]; then
+              ICON="🚫" && WORD="Cancelled"
+            else
+              ICON="❌" && WORD="Failed"
+            fi
             curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
               -d chat_id="${{ secrets.TELEGRAM_TO }}" \
               -d parse_mode="Markdown" \
-              -d text="${ICON} *Build ${WORD}*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A%0A[View Logs →](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              -d text="${ICON} *Build ${WORD}*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A🎯 Project: ${{ github.event.inputs.BASE_PROJECT }}%0A%0A[View Logs →](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           fi
-
-      - name: Stop on cancel
-        if: cancelled()
-        run: |
-          cd "$PROJECTFOLDER"
-          crave stop --all
-
-      - name: Upload to GitHub Release
-        continue-on-error: true
-        run: |
-          cd "$PROJECTFOLDER"
-          echo "${{ secrets.GITHUB_TOKEN }}" > token.txt
-          crave push token.txt -d "$(crave ssh -- pwd | grep -v Select | sed 's/\r//g')/" || true
-          crave ssh -- "export GH_UPLOAD_LIMIT='${{ secrets.GH_UPLOAD_LIMIT }}'; bash /opt/crave/github-actions/upload.sh '${{ github.run_id }}' '${{ github.event.inputs.DEVICE_NAME }}' '${{ github.repository }}' '${{ github.event.inputs.PRODUCT_NAME }}-${{ github.run_id }}' '${{ secrets.EXTRA_FILES }}'" || echo "Upload script not available"
 
       - name: Display error log
         if: failure()
+        continue-on-error: true
         run: |
-          cd "$PROJECTFOLDER"
-          crave ssh -- sleep 1 || true
-          crave pull out/error.log || echo "Could not pull error.log"
-          if [ -f out/error.log ]; then
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "ERROR LOG"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            cat out/error.log
-          fi
+          PROJECTFOLDER="${{ needs.test.outputs.PROJECTFOLDER }}"
+          crave ssh -- "cat ${PROJECTFOLDER}/out/error.log 2>/dev/null || echo 'No error.log found'" || true
 
       - name: Cleanup
         if: always()
         run: |
-          if crave clone list --json 2>/dev/null | jq -r '.clones[]."Cloned At"' | grep -q "$PROJECTFOLDER"; then
-            crave clone destroy -y "$PROJECTFOLDER" || echo "Could not destroy clone"
-          fi
+          crave stop --all || true

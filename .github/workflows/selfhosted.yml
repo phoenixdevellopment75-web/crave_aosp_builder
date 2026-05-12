@@ -1,6 +1,7 @@
 #
-# Fixed PixelOS Builder for Pixel 3 XL (crosshatch)
-# Fixes: crave.conf path, runner label, project matching
+# PixelOS 15 Builder for Pixel 3 XL (crosshatch)
+# Based on crave_aosp_builder - adapted for GitHub-hosted runners
+# Fixes: crave.conf path/format, runner type, manifest branch
 #
 
 name: PixelOS Builder
@@ -17,12 +18,27 @@ on:
           - 'PixelOS 15'
           - 'LineageOS 22.1'
           - 'LineageOS 21.0'
+          - 'LineageOS 20.0'
+          - 'ArrowOS 13.1'
+          - 'DerpFest 14.0'
+          - 'CipherOS 14'
+          - 'RisingOS 15 Revived'
           - 'AOSP'
 
+      BUILD_DIFFERENT_ROM:
+        description: "Command to initialize a different repo project (leave default):"
+        required: false
+        default: "echo 'Build Starting!'"
+
+      REMOVALS:
+        description: "Folders to be removed before syncing:"
+        required: false
+        default: ""
+
       LOCAL_MANIFEST:
-        description: "Local manifest URL (git repo or raw .xml):"
+        description: "Local manifest URL (git repo):"
         required: true
-        default: 'https://github.com/sounddrill31/local_manifests_oxygen'
+        default: 'https://github.com/phoenixdevellopment75-web/my-manifests'
 
       LOCAL_MANIFEST_BRANCH:
         description: "Local manifest branch:"
@@ -74,15 +90,15 @@ jobs:
       - name: Validate secrets
         run: |
           if [[ -z "${{ secrets.CRAVE_TOKEN }}" || -z "${{ secrets.CRAVE_USERNAME }}" ]]; then
-            echo "❌ ERROR: CRAVE_TOKEN or CRAVE_USERNAME is missing!"
+            echo "ERROR: CRAVE_TOKEN or CRAVE_USERNAME is missing!"
             exit 1
           fi
           if [[ -z "${{ secrets.TELEGRAM_TO }}" || -z "${{ secrets.TELEGRAM_TOKEN }}" ]]; then
-            echo "⚠️  WARNING: Telegram secrets missing - notifications disabled"
+            echo "WARNING: Telegram secrets missing - notifications disabled"
           else
-            echo "✅ Telegram notifications enabled"
+            echo "Telegram notifications enabled"
           fi
-          echo "✅ All required secrets configured"
+          echo "Secrets OK"
 
       - name: Set project variables
         id: set-vars
@@ -103,6 +119,31 @@ jobs:
               PROJECTID="72"
               REPO_INIT="repo init -u https://github.com/LineageOS/android.git -b lineage-21.0 --git-lfs --depth=1"
               ;;
+            "LineageOS 20.0")
+              PROJECTFOLDER="/crave-devspaces/Lineage20"
+              PROJECTID="36"
+              REPO_INIT="repo init -u https://github.com/accupara/los20.git -b lineage-20.0 --git-lfs --depth=1"
+              ;;
+            "ArrowOS 13.1")
+              PROJECTFOLDER="/crave-devspaces/Arrow13"
+              PROJECTID="73"
+              REPO_INIT="repo init -u https://github.com/ArrowOS/android_manifest.git -b arrow-13.1 --depth=1"
+              ;;
+            "DerpFest 14.0")
+              PROJECTFOLDER="/crave-devspaces/DerpFest14"
+              PROJECTID="64"
+              REPO_INIT="repo init -u https://github.com/DerpFest-AOSP/manifest.git -b 14 --depth=1"
+              ;;
+            "CipherOS 14")
+              PROJECTFOLDER="/crave-devspaces/Cipher14"
+              PROJECTID="79"
+              REPO_INIT="repo init -u https://github.com/CipherOS/android_manifest.git -b fourteen --git-lfs --depth=1"
+              ;;
+            "RisingOS 15 Revived")
+              PROJECTFOLDER="/crave-devspaces/Rising15"
+              PROJECTID="86"
+              REPO_INIT="repo init -u https://github.com/RisingOS-Revived/android.git -b fifteen --git-lfs --depth=1"
+              ;;
             "AOSP")
               PROJECTFOLDER="/crave-devspaces/AOSP"
               PROJECTID="35"
@@ -112,27 +153,53 @@ jobs:
 
           PRODUCT="${{ github.event.inputs.PRODUCT_NAME }}"
           BUILD_TYPE="${{ github.event.inputs.BUILD_TYPE }}"
-          LUNCH="lunch ${PRODUCT}-${BUILD_TYPE}"
+
+          if [[ "$PRODUCT" == *_* ]] && \
+             [[ "$PRODUCT" != gsi_* ]] && \
+             [[ "$PRODUCT" != sdk_* ]] && \
+             [[ "$PRODUCT" != *_sprout ]]; then
+            LUNCH="lunch ${PRODUCT}-${BUILD_TYPE}"
+          elif [[ "${{ github.event.inputs.BASE_PROJECT }}" == "RisingOS 15 Revived" ]] && \
+               [[ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]]; then
+            LUNCH="riseup ${PRODUCT} ${BUILD_TYPE}"
+          else
+            LUNCH="breakfast ${PRODUCT} ${BUILD_TYPE}"
+          fi
 
           LOCAL_MANIFEST_URL="${{ github.event.inputs.LOCAL_MANIFEST }}"
           LOCAL_MANIFEST_URL="${LOCAL_MANIFEST_URL%/}"
           if [[ "$LOCAL_MANIFEST_URL" =~ \.xml$ ]]; then
-            LOCAL_MANIFEST_CMD="mkdir -p .repo/local_manifests && curl -o .repo/local_manifests/local_manifest.xml ${LOCAL_MANIFEST_URL}"
+            LOCAL_MANIFEST_CMD="mkdir -p .repo/local_manifests && rm -rf .repo/local_manifests/* && curl -o .repo/local_manifests/local_manifest.xml ${LOCAL_MANIFEST_URL}"
           else
             LOCAL_MANIFEST_CMD="git clone ${LOCAL_MANIFEST_URL} --depth 1 -b ${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }} .repo/local_manifests"
           fi
 
-          echo "PROJECTFOLDER=$PROJECTFOLDER" >> "$GITHUB_OUTPUT"
-          echo "PROJECTID=$PROJECTID"         >> "$GITHUB_OUTPUT"
-          echo "REPO_INIT=$REPO_INIT"         >> "$GITHUB_OUTPUT"
-          echo "LUNCH=$LUNCH"                 >> "$GITHUB_OUTPUT"
+          echo "PROJECTFOLDER=$PROJECTFOLDER"           >> "$GITHUB_OUTPUT"
+          echo "PROJECTID=$PROJECTID"                   >> "$GITHUB_OUTPUT"
+          echo "REPO_INIT=$REPO_INIT"                   >> "$GITHUB_OUTPUT"
+          echo "LUNCH=$LUNCH"                           >> "$GITHUB_OUTPUT"
           echo "LOCAL_MANIFEST_CMD=$LOCAL_MANIFEST_CMD" >> "$GITHUB_OUTPUT"
 
+      - name: Display configuration
+        run: |
+          echo "========================================"
+          echo "BUILD CONFIGURATION"
+          echo "========================================"
+          echo "Project        : ${{ github.event.inputs.BASE_PROJECT }}"
+          echo "Device         : ${{ github.event.inputs.DEVICE_NAME }}"
+          echo "Product        : ${{ github.event.inputs.PRODUCT_NAME }}"
+          echo "Build Type     : ${{ github.event.inputs.BUILD_TYPE }}"
+          echo "Build Command  : ${{ github.event.inputs.BUILD_COMMAND }}"
+          echo "Clean Build    : ${{ github.event.inputs.CLEAN_BUILD }}"
+          echo "Local Manifest : ${{ github.event.inputs.LOCAL_MANIFEST }}"
+          echo "Branch         : ${{ github.event.inputs.LOCAL_MANIFEST_BRANCH }}"
+          echo "========================================"
+
     outputs:
-      PROJECTFOLDER:    ${{ steps.set-vars.outputs.PROJECTFOLDER }}
-      PROJECTID:        ${{ steps.set-vars.outputs.PROJECTID }}
-      REPO_INIT:        ${{ steps.set-vars.outputs.REPO_INIT }}
-      LUNCH:            ${{ steps.set-vars.outputs.LUNCH }}
+      PROJECTFOLDER:      ${{ steps.set-vars.outputs.PROJECTFOLDER }}
+      PROJECTID:          ${{ steps.set-vars.outputs.PROJECTID }}
+      REPO_INIT:          ${{ steps.set-vars.outputs.REPO_INIT }}
+      LUNCH:              ${{ steps.set-vars.outputs.LUNCH }}
       LOCAL_MANIFEST_CMD: ${{ steps.set-vars.outputs.LOCAL_MANIFEST_CMD }}
 
   test:
@@ -149,26 +216,36 @@ jobs:
 
       - name: Configure git
         run: |
-          git config --global user.name  "${{ github.actor }}"
+          git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
       - name: Test local manifest
+        if: ${{ github.event.inputs.BUILD_DIFFERENT_ROM != 'skip' }}
         timeout-minutes: 10
         run: |
           rm -rf test && mkdir test && cd test
-          ${{ needs.prepare.outputs.REPO_INIT }}
+
+          if [ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" == "echo 'Build Starting!'" ]; then
+            ${{ needs.prepare.outputs.REPO_INIT }}
+          else
+            ${{ github.event.inputs.BUILD_DIFFERENT_ROM }}
+          fi
+
           bash -c "${{ needs.prepare.outputs.LOCAL_MANIFEST_CMD }}"
+
           timeout 1m repo sync --force-sync || {
             code=$?
             [ $code -eq 124 ] || exit $code
           }
-          echo "✅ Manifest test passed"
+
+          echo "Manifest test passed"
+          du -sh .
 
     outputs:
-      PROJECTFOLDER:    ${{ needs.prepare.outputs.PROJECTFOLDER }}
-      PROJECTID:        ${{ needs.prepare.outputs.PROJECTID }}
-      REPO_INIT:        ${{ needs.prepare.outputs.REPO_INIT }}
-      LUNCH:            ${{ needs.prepare.outputs.LUNCH }}
+      PROJECTFOLDER:      ${{ needs.prepare.outputs.PROJECTFOLDER }}
+      PROJECTID:          ${{ needs.prepare.outputs.PROJECTID }}
+      REPO_INIT:          ${{ needs.prepare.outputs.REPO_INIT }}
+      LUNCH:              ${{ needs.prepare.outputs.LUNCH }}
       LOCAL_MANIFEST_CMD: ${{ needs.prepare.outputs.LOCAL_MANIFEST_CMD }}
 
   build:
@@ -183,31 +260,36 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y jq curl gettext-base
+          sudo apt-get install -y jq curl
 
       - name: Configure crave CLI
         run: |
-          # Download crave binary
           mkdir -p "${HOME}/bin"
           curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
           mv "${PWD}/crave" "${HOME}/bin/crave"
           chmod +x "${HOME}/bin/crave"
           echo "${HOME}/bin" >> $GITHUB_PATH
 
-          # FIX: Write crave.conf directly to HOME (where crave CLI expects it)
+          # FIX: Write crave.conf in the EXACT format crave expects, to $HOME
+          # (Your crave.conf.sample format has headers/server fields - replicated here)
           cat > "${HOME}/crave.conf" << EOF
           {
             "username": "${{ secrets.CRAVE_USERNAME }}",
-            "token": "${{ secrets.CRAVE_TOKEN }}"
+            "headers": {
+              "Content-Type": "application/json",
+              "Authorization": "${{ secrets.CRAVE_TOKEN }}",
+              "User-Agent": "Crave"
+            },
+            "projects": [],
+            "server": "https://foss.crave.io/api"
           }
           EOF
 
-          echo "✅ crave.conf written to ${HOME}/crave.conf"
-          cat "${HOME}/crave.conf"
+          echo "crave.conf written to ${HOME}/crave.conf"
 
       - name: Configure git
         run: |
-          git config --global user.name  "${{ github.actor }}"
+          git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
       - name: Telegram - Build Started
@@ -217,33 +299,54 @@ jobs:
             curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
               -d chat_id="${{ secrets.TELEGRAM_TO }}" \
               -d parse_mode="Markdown" \
-              -d text="🚀 *Build Started*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A🎯 Project: ${{ github.event.inputs.BASE_PROJECT }}%0A%0A[View Progress →](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              -d text="🚀 *Build Started*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A🎯 Project: ${{ github.event.inputs.BASE_PROJECT }}%0A%0A[View Progress](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           fi
 
-      - name: Start crave build
-        timeout-minutes: 1440
+      - name: Determine build flags
+        id: flags
         run: |
           CLEAN_FLAG=""
           [[ "${{ github.event.inputs.CLEAN_BUILD }}" == "yes" ]] && CLEAN_FLAG="--clean"
+          echo "CLEAN_FLAG=$CLEAN_FLAG" >> "$GITHUB_OUTPUT"
 
-          # FIX: Pass project ID explicitly so crave doesn't try to match by repo name
-          crave run \
+          PAID_FLAG=""
+          [[ -n "${{ secrets.PAID }}" ]] && PAID_FLAG="--platform aosp-silver"
+          echo "PAID_FLAG=$PAID_FLAG" >> "$GITHUB_OUTPUT"
+
+          BUILD_INIT="${{ needs.test.outputs.REPO_INIT }}"
+          if [ "${{ github.event.inputs.BUILD_DIFFERENT_ROM }}" != "echo 'Build Starting!'" ]; then
+            BUILD_INIT="${{ github.event.inputs.BUILD_DIFFERENT_ROM }}"
+          fi
+          echo "BUILD_INIT=$BUILD_INIT" >> "$GITHUB_OUTPUT"
+
+      - name: Start crave build
+        if: ${{ github.event.inputs.BUILD_DIFFERENT_ROM != 'skip' }}
+        timeout-minutes: 1440
+        run: |
+          # Clear projects list before run
+          jq '.projects = []' "${HOME}/crave.conf" > /tmp/crave_tmp.conf && mv /tmp/crave_tmp.conf "${HOME}/crave.conf"
+
+          echo "========================================"
+          echo "STARTING BUILD ON CRAVE.IO"
+          echo "Project : ${{ needs.test.outputs.PROJECTFOLDER }}"
+          echo "ID      : ${{ needs.test.outputs.PROJECTID }}"
+          echo "Monitor : https://foss.crave.io"
+          echo "========================================"
+
+          crave ${{ secrets.CRAVE_FLAGS }} run \
             --no-patch \
-            $CLEAN_FLAG \
+            ${{ steps.flags.outputs.PAID_FLAG }} \
+            ${{ steps.flags.outputs.CLEAN_FLAG }} \
             -p "${{ needs.test.outputs.PROJECTID }}" \
             -- "
             set -e
 
-            # Remove old local manifests
-            rm -rf .repo/local_manifests/
+            rm -rf .repo/local_manifests/ ${{ github.event.inputs.REMOVALS }}
 
-            # Init repo
-            ${{ needs.test.outputs.REPO_INIT }}
+            ${{ steps.flags.outputs.BUILD_INIT }}
 
-            # Clone local manifests
             ${{ needs.test.outputs.LOCAL_MANIFEST_CMD }}
 
-            # Sync
             if [ -f /usr/bin/resync ]; then
               /usr/bin/resync
             else
@@ -252,13 +355,11 @@ jobs:
 
             export BUILD_USERNAME=${{ github.actor }}
             export BUILD_HOSTNAME=crave
-
             source build/envsetup.sh
 
-            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
             echo 'Device  : ${{ github.event.inputs.DEVICE_NAME }}'
             echo 'Product : ${{ github.event.inputs.PRODUCT_NAME }}'
-            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo 'Run ID  : ${{ github.run_id }}'
 
             ${{ needs.test.outputs.LUNCH }}
             make installclean
@@ -274,14 +375,16 @@ jobs:
           rm -f token.txt
 
           crave ssh -- "
+            export GH_UPLOAD_LIMIT='${{ secrets.GH_UPLOAD_LIMIT }}'
             if [ -f /opt/crave/github-actions/upload.sh ]; then
               bash /opt/crave/github-actions/upload.sh \
                 '${{ github.run_id }}' \
                 '${{ github.event.inputs.DEVICE_NAME }}' \
                 '${{ github.repository }}' \
-                '${{ github.event.inputs.PRODUCT_NAME }}-${{ github.run_id }}'
+                '${{ github.event.inputs.PRODUCT_NAME }}-${{ github.run_id }}' \
+                '${{ secrets.EXTRA_FILES }}'
             else
-              echo 'Upload script not found'
+              echo 'Upload script not found - check crave.io dashboard'
             fi
           " || echo "Upload skipped"
 
@@ -293,10 +396,10 @@ jobs:
             curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
               -d chat_id="${{ secrets.TELEGRAM_TO }}" \
               -d parse_mode="Markdown" \
-              -d text="✅ *Build Succeeded!*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A🎯 Project: ${{ github.event.inputs.BASE_PROJECT }}%0A%0A[View Run →](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})%0A[Download →](https://github.com/${{ github.repository }}/releases/tag/${{ github.run_id }})"
+              -d text="✅ *Build Succeeded!*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A🎯 Project: ${{ github.event.inputs.BASE_PROJECT }}%0A%0A[View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})%0A[Download](https://github.com/${{ github.repository }}/releases/tag/${{ github.run_id }})"
           fi
 
-      - name: Telegram - Failed
+      - name: Telegram - Failed/Cancelled
         if: failure() || cancelled()
         continue-on-error: true
         run: |
@@ -307,14 +410,18 @@ jobs:
             curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
               -d chat_id="${{ secrets.TELEGRAM_TO }}" \
               -d parse_mode="Markdown" \
-              -d text="${ICON} *Build ${WORD}*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A[View Logs →](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              -d text="${ICON} *Build ${WORD}*%0A%0A📱 Device: \`${{ github.event.inputs.DEVICE_NAME }}\`%0A📦 Product: \`${{ github.event.inputs.PRODUCT_NAME }}\`%0A%0A[View Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           fi
 
       - name: Show error log
         if: failure()
         continue-on-error: true
         run: |
-          crave ssh -- "cat ${{ needs.test.outputs.PROJECTFOLDER }}/out/error.log 2>/dev/null || echo 'No error.log'" || true
+          crave ssh -- "cat ${{ needs.test.outputs.PROJECTFOLDER }}/out/error.log 2>/dev/null || echo 'No error.log found'" || true
+
+      - name: Stop crave on cancel
+        if: cancelled()
+        run: crave stop --all || true
 
       - name: Cleanup
         if: always()

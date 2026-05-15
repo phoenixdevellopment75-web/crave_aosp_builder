@@ -1,0 +1,15 @@
+# Build outputs
+source/
+out/
+ccache/
+artifacts/
+logs/
+
+# Repo tool noise
+.repo/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.log
+

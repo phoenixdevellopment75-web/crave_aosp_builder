@@ -319,14 +319,13 @@ jobs:
       - name: Write crave.yaml for project selection
         run: |
           # crave uses crave.yaml in the working directory to know which project to target
-          # This replaces the unsupported -p flag
-          mkdir -p "${PWD}/.repo/manifests"
+          # Must be at root of workspace, NOT in .repo/manifests/
           cat > "${PWD}/crave.yaml" << EOF
           allowedProjects:
             - projectId: "${{ needs.test.outputs.PROJECTID }}"
               projectFolder: "${{ needs.test.outputs.PROJECTFOLDER }}"
           EOF
-          echo "crave.yaml written:"
+          echo "crave.yaml written to ${PWD}/crave.yaml:"
           cat "${PWD}/crave.yaml"
 
       - name: Start crave build
@@ -358,6 +357,7 @@ jobs:
           export TARGET_USES_UNIFIED_PACKAGE=true
           
           crave ${{ secrets.CRAVE_FLAGS }} run \
+            --project "${{ needs.test.outputs.PROJECTID }}" \
             --no-patch \
             ${PAID_FLAG} \
             ${CLEAN_FLAG} \

@@ -357,7 +357,7 @@ jobs:
           export TARGET_USES_UNIFIED_PACKAGE=true
           
           crave ${{ secrets.CRAVE_FLAGS }} run \
-            --project "${{ needs.test.outputs.PROJECTID }}" \
+            --projectID "${{ needs.test.outputs.PROJECTID }}" \
             --no-patch \
             ${PAID_FLAG} \
             ${CLEAN_FLAG} \

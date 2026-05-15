@@ -337,12 +337,26 @@ jobs:
           echo "STARTING BUILD ON CRAVE.IO"
           echo "Project : ${{ needs.test.outputs.PROJECTFOLDER }}"
           echo "ID      : ${{ needs.test.outputs.PROJECTID }}"
+          echo "Device  : crosshatch (Pixel 3 XL)"
           echo "Monitor : https://foss.crave.io"
           echo "========================================"
 
           CLEAN_FLAG="${{ steps.flags.outputs.CLEAN_FLAG }}"
           PAID_FLAG="${{ steps.flags.outputs.PAID_FLAG }}"
 
+          # Set optimized ccache and build environment settings for crosshatch
+          # Use ccache for faster incremental builds
+          export USE_CCACHE=1
+          export CCACHE_SIZE="50G"
+          # Enable parallel build with sufficient threads
+          export MAKEFLAGS="-j$(nproc)"
+          
+          # Set device-specific optimizations for crosshatch (Pixel 3 XL)
+          # This is a 2018 device with Snapdragon 845
+          export BUILD_TYPE="${{ github.event.inputs.BUILD_TYPE }}"
+          export TARGET_KERNEL_USE_CLANG=true
+          export TARGET_USES_UNIFIED_PACKAGE=true
+          
           crave ${{ secrets.CRAVE_FLAGS }} run \
             --no-patch \
             ${PAID_FLAG} \

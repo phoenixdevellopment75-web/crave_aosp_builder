@@ -282,7 +282,11 @@ jobs:
           }
           EOF
 
-          echo "crave.conf written successfully"
+          echo "crave.conf written to ${HOME}/crave.conf"
+          
+          # Debug: verify config exists and show non-sensitive info
+          ls -la "${HOME}/crave.conf" || echo "ERROR: crave.conf not found"
+          cat "${HOME}/crave.conf" | sed 's/"Authorization": "[^"]*"/"Authorization": "REDACTED"/'
 
       - name: Configure git
         run: |
@@ -316,7 +320,7 @@ jobs:
           fi
           echo "BUILD_INIT=$BUILD_INIT" >> "$GITHUB_OUTPUT"
 
-      - name: Write crave.yaml for project selection
+      - name: Write and verify crave.yaml for project selection
         run: |
           # crave uses crave.yaml in the working directory to know which project to target
           # Must be at root of workspace
@@ -357,10 +361,8 @@ jobs:
           export TARGET_USES_UNIFIED_PACKAGE=true
           
           crave ${{ secrets.CRAVE_FLAGS }} run \
-            --projectID 82 \
-            --no-patch \
-            ${PAID_FLAG} \
-            ${CLEAN_FLAG} \
+            --projectID 82 --no-patch \
+            ${PAID_FLAG} ${CLEAN_FLAG} \
             -- "
             set -e
 
